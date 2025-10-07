@@ -25,6 +25,21 @@ experience = namedtuple("Experience",
 class Lander:
 
 
+    def __get_default_network(self):
+        """
+
+        :return:
+        """
+
+        return Sequential([
+            Input(shape=self.state_size),
+            Dense(units=64, activation='relu'),
+            Dense(units=64, activation='relu'),
+            Dense(units=self.num_actions, activation='linear')
+        ])
+    # ----- end function definition __get_default_network() ---------------------------------------
+
+
     def __get_experiences(self, memory_buffer):
         """
         Returns a random sample of experience tuples drawn from the memory buffer.
@@ -75,7 +90,73 @@ class Lander:
     # ----- end function definition __get_experiences() -------------------------------------------
 
 
-    def __execute_time_step(self, time_idx, state, replay_buffer, epsilon):
+    def compute_loss(self, experiences):
+        """
+        Calculates the loss for a new set of experience using Mean Squared Error (MSE).
+
+        Args:
+            experiences: (tuple) mini-batch of Experience records in the form of named tuples
+                with properties - ["state", "action", "reward", "next_state", "done"]
+
+        Returns:
+            loss: (TensorFlow Tensor(shape=(0,), dtype=int32)) the MSE between the target
+                values generated during exploration and the best action-value results
+        """
+
+        # Unpack the mini-batch of experience tuples
+        states, actions, imm_rewards, next_states, done_flags = experiences
+
+        # For each next state, calculate what the expected rewards would be for each possible
+        # action, then pick the largest of those values to keep using "reduce_max"
+        max_qsa = tf.reduce_max(self.gen_network(next_states), axis=-1)
+
+        # Eventually, we will reach a termination point for this lander; each experience
+        # record reflects this with the "done" flag.  If we have reached a terminal state,
+        # use the immediate reward for that state (R(s)).  Otherwise, calculate the reward
+        # using the full Bellman Equation (R(s) + γ max Q^(s',a'))
+        y_targets = tf.convert_to_tensor(imm_rewards + (self.GAMMA * max_qsa * (1 - done_flags)))
+
+        # Get the q_values from our trained action-value network and reshape to match y_targets
+        q_values = self.q_network(states)
+        q_values = tf.gather_nd(q_values, tf.stack([tf.range(q_values.shape[0]),
+                                                    tf.cast(actions, tf.int32)], axis=1))
+
+        # Compute and return the loss
+        loss = MSE(y_targets, q_values)
+        return loss
+    # ----- end function definition compute_loss() ------------------------------------------------
+
+
+    @tf.function
+    def update_agent(self, experiences):
+        """
+        Updates the weights of the generator and Q-function networks; denoted as a "tf.function"
+        to allow TensorFlow to convert the logic to graph-format for improved performance
+
+        Args:
+            experiences: (tuple) mini-batch of Experience records in the form of named tuples
+                with properties - ["state", "action", "reward", "next_state", "done"]
+
+        """
+
+        # Calculate the loss using Tensorflow's GradientTape for efficiency
+        with tf.GradientTape() as tape:
+            loss = self.compute_loss(experiences)
+
+        # Get the gradients of the loss with respect to the weights
+        gradients = tape.gradient(loss, self.q_network.trainable_variables)
+
+        # Update the weights of the Q-function network
+        self.optimizer.apply_gradients(zip(gradients, self.q_network.trainable_variables))
+
+        # *soft* update the weights of generator network based on Q-function network
+        network_weights = zip(self.gen_network.weights, self.q_network.weights)
+        for target_weights, q_net_weights in network_weights:
+            target_weights.assign(self.TAU * q_net_weights + (1.0 - self.TAU) * target_weights)
+    # ----- end function definition update_agent() ------------------------------------------------
+
+
+    def execute_time_step(self, time_idx, state, replay_buffer, epsilon):
         """
 
         :param time_idx:
@@ -126,18 +207,20 @@ class Lander:
             # Sample random mini-batch of experience tuples (S, A, R, S-prime)
             # from the replay buffer
             experiences = self.__get_experiences(replay_buffer)
+            assert len(experiences[0]) == len(experiences[1]) == len(experiences[2]) == len(experiences[3])
 
             # Set the y targets, perform a gradient descent step,
             # and update the network weights.
             self.update_agent(experiences)
         # end if-block
 
-        return next_state.copy(), reward, done
-    # ----- end function definition __execute_time_step() -----------------------------------------
+        state = next_state.copy()
+        return state, reward, done, replay_buffer
+    # ----- end function definition execute_time_step() -------------------------------------------
 
 
-    def __execute_episode(self, ep_idx, replay_buffer, total_point_history, num_time_steps,
-                          num_points, epsilon):
+    def execute_episode(self, ep_idx, replay_buffer, total_point_history, num_time_steps, num_points,
+                        epsilon):
         """
 
         :param ep_idx:
@@ -151,12 +234,12 @@ class Lander:
 
         # For each new episode, reset the environment to the default conditions and get the
         # corresponding starting state from which to begin this episode
-        state = self.lander_env.reset()
+        state = self.lander_env.reset()[0]
         total_points = 0
 
         # Execute all time steps for this episode
         for t in range(num_time_steps):
-            state, reward, done = self.__execute_time_step(t, state, replay_buffer, epsilon)
+            state, reward, done, replay_buffer = self.execute_time_step(t, state, replay_buffer, epsilon)
             total_points += reward
             if done:
                 # If this time step lands us in a terminal condition, we can end this loop early
@@ -172,91 +255,23 @@ class Lander:
         new_epsilon = max(self.EPSILON_MIN, self.EPSILON_DECAY * epsilon)
 
         print(f"\rEpisode {ep_idx + 1} | Total point average of the last {num_points} " +
-              "episodes: {av_latest_points:.2f}", end="")
+              f"episodes: {av_latest_points:.2f}", end="")
 
         if (ep_idx + 1) % num_points == 0:
             print(f"\rEpisode {ep_idx + 1} | Total point average of the last {num_points} " +
-                  "episodes: {av_latest_points:.2f}")
+                  f"episodes: {av_latest_points:.2f}")
         # end if-block
 
         # We will consider that the environment is solved if we get an average of 200 points
         # in the last 100 episodes.
         if av_latest_points >= 200.0:
             print(f"\n\nEnvironment solved in {ep_idx + 1} episodes!")
-            self.q_network.save('lunar_lander_model.h5')
+            self.q_network.save('./output/lunar_lander_model.keras')
             return None
         # end if-block
 
         return new_epsilon
-    # ----- end function definition __execute_episode() -------------------------------------------
-
-
-    def compute_loss(self, experiences):
-        """
-        Calculates the loss for a new set of experience using Mean Squared Error (MSE).
-
-        Args:
-            experiences: (tuple) mini-batch of Experience records in the form of named tuples
-                with properties - ["state", "action", "reward", "next_state", "done"]
-
-        Returns:
-            loss: (TensorFlow Tensor(shape=(0,), dtype=int32)) the MSE between the target
-                values generated during exploration and the best action-value results
-        """
-
-        # Unpack the mini-batch of experience tuples
-        states, actions, imm_rewards, next_states, done_vals = experiences
-
-        # For each next state, calculate what the expected rewards would be for each possible
-        # action, then pick the largest of those values to keep using "reduce_max"
-        max_qsa = tf.reduce_max(self.gen_network(next_states), axis=-1)
-
-        # Eventually, we will reach a termination point for this lander; each experience
-        # record reflects this with the "done" flag.  If we have reached a terminal state,
-        # use the immediate reward for that state (R(s)).  Otherwise, calculate the reward
-        # using the full Bellman Equation (R(s) + γ max Q^(s',a'))
-        bellman_rewards = [ r + (self.GAMMA * q) for r, q in zip(imm_rewards, max_qsa) ]
-        y_targets = [ r if d else b for r, b, d in zip(imm_rewards, bellman_rewards, done_vals)]
-        y_targets = tf.convert_to_tensor(y_targets)
-
-        # Get the q_values from our trained action-value network and reshape to match y_targets
-        q_values = self.q_network(states)
-        q_values = tf.gather_nd(q_values, tf.stack([tf.range(q_values.shape[0]),
-                                                    tf.cast(actions, tf.int32)], axis=1))
-
-        # Compute and return the loss
-        loss = MSE(y_targets, q_values)
-        return loss
-    # ----- end function definition compute_loss() ------------------------------------------------
-
-
-    @tf.function
-    def update_agent(self, experiences):
-        """
-        Updates the weights of the generator and Q-function networks; denoted as a "tf.function"
-        to allow TensorFlow to convert the logic to graph-format for improved performance
-
-        Args:
-            experiences: (tuple) mini-batch of Experience records in the form of named tuples
-                with properties - ["state", "action", "reward", "next_state", "done"]
-
-        """
-
-        # Calculate the loss using Tensorflow's GradientTape for efficiency
-        with tf.GradientTape() as tape:
-            loss = self.compute_loss(experiences)
-
-        # Get the gradients of the loss with respect to the weights
-        gradients = tape.gradient(loss, self.q_network.trainable_variables)
-
-        # Update the weights of the Q-function network
-        self.optimizer.apply_gradients(zip(gradients, self.q_network.trainable_variables))
-
-        # *soft* update the weights of generator network based on Q-function network
-        network_weights = zip(self.gen_network.weights, self.q_network.weights)
-        for target_weights, q_net_weights in network_weights:
-            target_weights.assign(self.TAU * q_net_weights + (1.0 - self.TAU) * target_weights)
-    # ----- end function definition update_agent() ------------------------------------------------
+    # ----- end function definition execute_episode() ---------------------------------------------
 
 
     def train_agent(self, num_episodes=2000, num_time_steps=1000, num_points=100, epsilon=1.0):
@@ -283,8 +298,8 @@ class Lander:
 
         # Execute the number of requested episodes
         for i in range(num_episodes):
-            epsilon = self.__execute_episode(i, replay_buffer, total_point_history, num_time_steps,
-                                             num_points, epsilon)
+            epsilon = self.execute_episode(i, replay_buffer, total_point_history, num_time_steps,
+                                           num_points, epsilon)
             if epsilon is None:
                 # If epsilon is None, it means we solved the problem early!
                 break
@@ -295,18 +310,8 @@ class Lander:
     # ----- end function definition train_agent() -------------------------------------------------
 
 
-    def __get_default_network(self):
-        return Sequential([
-            Input(shape=self.state_size),
-            Dense(units=64, activation='relu'),
-            Dense(units=64, activation='relu'),
-            Dense(units=self.num_actions, activation='linear')
-        ])
-    # ----- end function definition __get_default_network() ---------------------------------------
-
-
     def __init__(self, buffer_size=100_000, steps_per_update=4, minibatch_size=64, alpha=1e-3,
-                 epsilon_min=0.01, epsilon_decay=0.995, gamma=0.995, tau=1e-3):
+                 gamma=0.995, tau=1e-3, epsilon_min=0.01, epsilon_decay=0.995):
         """
         Updates the weights of the generator and Q-function networks; denoted as a "tf.function"
         to allow TensorFlow to convert the logic to graph-format for improved performance
@@ -314,10 +319,13 @@ class Lander:
         Args:
             buffer_size: (int) size of the replay buffer
             steps_per_update: (int) number of time steps before we do an update
+            minibatch_size: (int) etc.
             alpha: (float) learning rate to use during training
             gamma: (float) discount / decay factor when calculating Q function
             tau: (float) soft update weighting parameter indicating how much we should favor
                 the old network weights during updates
+            epsilon_min: (float) etc.
+            epsilon_decay: (float) etc.
 
         """
 
@@ -326,10 +334,11 @@ class Lander:
         self.MINIBATCH_SIZE = minibatch_size
 
         self.ALPHA = alpha
-        self.EPSILON_MIN = epsilon_min
-        self.EPSILON_DECAY = epsilon_decay
         self.GAMMA = gamma
         self.TAU = tau
+
+        self.EPSILON_MIN = epsilon_min
+        self.EPSILON_DECAY = epsilon_decay
 
         self.lander_env = gym.make('LunarLander-v3', render_mode='rgb_array')
         self.state_size = self.lander_env.observation_space.shape
@@ -342,8 +351,30 @@ class Lander:
         self.q_network = self.__get_default_network()
 
         # using "Adam" as our training optimizer for speed and performance
-        self.optimizer = Adam(lr=self.ALPHA)
+        self.optimizer = Adam(learning_rate=self.ALPHA)
     # ----- end function definition __init__() ----------------------------------------------------
+
+
+    def __str__(self):
+        output = [
+            "LUNAR LANDER PROPERTIES:",
+            "",
+            "\t Replay Buffer Size: \t\t\t\t" + str(self.MEMORY_SIZE),
+            "\t Steps Per Update: \t\t\t\t\t" + str(self.NUM_STEPS_FOR_UPDATE),
+            "\t Mini-batch Size: \t\t\t\t\t" + str(self.MINIBATCH_SIZE),
+            "",
+            "\t Learning Rate (Alpha): \t\t\t" + str(self.ALPHA),
+            "\t Q-func Discount Factor (Gamma): \t" + str(self.GAMMA),
+            "\t Soft Update Trade-off Param (Tau): " + str(self.TAU),
+            "",
+            "\t Epsilon - Min Value: \t\t\t\t" + str(self.EPSILON_MIN),
+            "\t Epsilon - Decay Rate: \t\t\t\t" + str(self.EPSILON_DECAY),
+            "",
+            "\t Env. Num Avail. Actions: \t\t\t" + str(self.num_actions),
+            "\t Env. State Size: \t\t\t\t\t" + str(self.state_size)
+        ]
+        return "\n".join(output)
+    # ----- end function definition __str__() ----------------------------------------------------
 
 
 # ===== end class Lander() ========================================================================
