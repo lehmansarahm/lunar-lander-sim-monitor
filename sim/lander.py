@@ -32,44 +32,22 @@ class Lander:
         """
 
         return Sequential([
-            Input(shape=self.state_size),
-            Dense(units=64, activation='relu'),
-            Dense(units=64, activation='relu'),
-            Dense(units=self.num_actions, activation='linear')
+            Input(shape=self.state_size, name="input"),
+            Dense(units=64, activation="relu", name="hidden1"),
+            Dense(units=64, activation="relu", name="hidden2"),
+            Dense(units=self.num_actions*2, activation="linear", name="monitor"),
+            Dense(units=self.num_actions, activation="linear", name="output")
         ])
     # ----- end function definition __get_default_network() ---------------------------------------
 
 
-    def __get_experiences(self, memory_buffer):
-        """
-        Returns a random sample of experience tuples drawn from the memory buffer.
-
-        Retrieves a random sample of experience tuples from the given memory_buffer and
-        returns them as TensorFlow Tensors. The size of the random sample is determined by
-        the mini-batch size (MINIBATCH_SIZE).
-
-        Args:
-            memory_buffer (deque):
-                A deque containing experiences. The experiences are stored in the memory
-                buffer as named tuples: namedtuple("Experience", field_names=["state",
-                "action", "reward", "next_state", "done"]).
-
-        Returns:
-            A tuple (states, actions, rewards, next_states, done_vals) where:
-                - states are the starting states of the agent.
-                - actions are the actions taken by the agent from the starting states.
-                - rewards are the rewards received by the agent after taking the actions.
-                - next_states are the new states of the agent after taking the actions.
-                - done_vals are the boolean values indicating if the episode ended.
-
-            All tuple elements are TensorFlow Tensors whose shape is determined by the
-            mini-batch size and the given Gym environment. For the Lunar Lander environment
-            the states and next_states will have a shape of [MINIBATCH_SIZE, 8] while the
-            actions, rewards, and done_vals will have a shape of [MINIBATCH_SIZE]. All
-            TensorFlow Tensors have elements with dtype=tf.float32.
+    @staticmethod
+    def __parse_experiences(experiences):
         """
 
-        experiences = random.sample(memory_buffer, k=self.MINIBATCH_SIZE)
+        :param experiences:
+        :return:
+        """
 
         states = np.array([e.state for e in experiences if e is not None])
         states = tf.convert_to_tensor(states, dtype=tf.float32)
@@ -87,7 +65,57 @@ class Lander:
         done_flags = tf.convert_to_tensor(done_flags.astype(np.uint8), dtype=tf.float32)
 
         return states, actions, rewards, next_states, done_flags
+    # ----- end function definition __parse_experiences() -----------------------------------------
+
+
+    def __sample_experiences_from_replay_buffer(self):
+        """
+        Returns a random sample of experience tuples drawn from the memory buffer.
+
+        Retrieves a random sample of experience tuples from the given memory_buffer and
+        returns them as TensorFlow Tensors. The size of the random sample is determined by
+        the mini-batch size (MINIBATCH_SIZE).
+
+        Returns:
+            A tuple (states, actions, rewards, next_states, done_vals) where:
+                - states are the starting states of the agent.
+                - actions are the actions taken by the agent from the starting states.
+                - rewards are the rewards received by the agent after taking the actions.
+                - next_states are the new states of the agent after taking the actions.
+                - done_vals are the boolean values indicating if the episode ended.
+
+            All tuple elements are TensorFlow Tensors whose shape is determined by the
+            mini-batch size and the given Gym environment. For the Lunar Lander environment
+            the states and next_states will have a shape of [MINIBATCH_SIZE, 8] while the
+            actions, rewards, and done_vals will have a shape of [MINIBATCH_SIZE]. All
+            TensorFlow Tensors have elements with dtype=tf.float32.
+        """
+
+        experiences = random.sample(self.replay_buffer, k=self.MINIBATCH_SIZE)
+        return self.__parse_experiences(experiences)
     # ----- end function definition __get_experiences() -------------------------------------------
+
+
+    def __save_replay_buffer(self):
+        states, actions, rewards, next_states, done_flags = self.__parse_experiences(self.replay_buffer)
+        buffer_components = {
+            "states": states,
+            "actions": actions,
+            "rewards": rewards,
+            "next_states": next_states,
+            "done_flags": done_flags
+        }
+
+        output_path = "./output/latest_buffer_{}.npy"
+        output_message = "Buffer component {} saved to file {} with shape {}"
+
+        for key in buffer_components.keys():
+            path = output_path.format(key)
+            data = np.array(buffer_components[key])
+            np.save(path, data, allow_pickle=True)
+            print(output_message.format(key, path, data.shape))
+        # end buffer component loop
+    # ----- end function definition __save_replay_buffer() ----------------------------------------
 
 
     def compute_loss(self, experiences):
@@ -156,13 +184,11 @@ class Lander:
     # ----- end function definition update_agent() ------------------------------------------------
 
 
-    def execute_time_step(self, time_idx, state, replay_buffer, epsilon):
+    def execute_time_step(self, time_idx):
         """
 
         :param time_idx:
-        :param state:
-        :param replay_buffer:
-        :param epsilon:
+
         :return:
         """
 
@@ -170,13 +196,13 @@ class Lander:
         # state (S) using a greedy policy for the current value of epsilon
 
         # First, make sure 'state' is in the right shape for the Q-function network
-        state_qn = np.expand_dims(state, axis=0)
+        state_qn = np.expand_dims(self.current_state, axis=0)
         q_values = self.q_network(state_qn)
 
         # Next, pick an action with trade-off parameter epsilon.  With epsilon
         # probability, return a random action (explore).  Otherwise, return the
         # best option from the info we've collected so far (exploit).
-        action = random.choice(np.arange(4)) if random.random() <= epsilon \
+        action = random.choice(np.arange(4)) if random.random() <= self.current_epsilon \
             else np.argmax(q_values.numpy()[0])
 
         # -----------------------------------------------------------------------
@@ -196,50 +222,46 @@ class Lander:
 
         # Store experience tuple (S, A, R, S-prime) in the memory buffer.
         # We store the "done" variable as well for convenience.
-        replay_buffer.append(experience(state, action, reward, next_state, done))
+        self.replay_buffer.append(experience(self.current_state, action, reward, next_state, done))
 
         # Only update the network when the necessary conditions are met.
         update_step_reached = (time_idx + 1) % self.NUM_STEPS_FOR_UPDATE == 0
-        minibatch_size_exceeded = len(replay_buffer) > self.MINIBATCH_SIZE
+        minibatch_size_exceeded = len(self.replay_buffer) > self.MINIBATCH_SIZE
         update = update_step_reached and minibatch_size_exceeded
 
         if update:
             # Sample random mini-batch of experience tuples (S, A, R, S-prime)
             # from the replay buffer
-            experiences = self.__get_experiences(replay_buffer)
-            assert len(experiences[0]) == len(experiences[1]) == len(experiences[2]) == len(experiences[3])
+            experiences = self.__sample_experiences_from_replay_buffer()
 
             # Set the y targets, perform a gradient descent step,
             # and update the network weights.
             self.update_agent(experiences)
         # end if-block
 
-        state = next_state.copy()
-        return state, reward, done, replay_buffer
+        self.current_state = next_state.copy()
+        return reward, done
     # ----- end function definition execute_time_step() -------------------------------------------
 
 
-    def execute_episode(self, ep_idx, replay_buffer, total_point_history, num_time_steps, num_points,
-                        epsilon):
+    def execute_episode(self, ep_idx, num_time_steps, num_points):
         """
 
         :param ep_idx:
-        :param replay_buffer:
-        :param total_point_history:
         :param num_time_steps:
         :param num_points:
-        :param epsilon:
+
         :return:
         """
 
         # For each new episode, reset the environment to the default conditions and get the
         # corresponding starting state from which to begin this episode
-        state = self.lander_env.reset()[0]
+        self.current_state = self.lander_env.reset()[0]
         total_points = 0
 
         # Execute all time steps for this episode
         for t in range(num_time_steps):
-            state, reward, done, replay_buffer = self.execute_time_step(t, state, replay_buffer, epsilon)
+            reward, done = self.execute_time_step(t)
             total_points += reward
             if done:
                 # If this time step lands us in a terminal condition, we can end this loop early
@@ -247,30 +269,31 @@ class Lander:
             # end if-block
         # end time step for-loop
 
-        total_point_history.append(total_points)
-        av_latest_points = np.mean(total_point_history[-num_points:])
+        self.total_point_history.append(total_points)
+        avg_latest_points = np.mean(self.total_point_history[-num_points:])
 
         # Update the value of epsilon with our selected decay rate or the hard-coded minimum...
         # whichever is bigger
-        new_epsilon = max(self.EPSILON_MIN, self.EPSILON_DECAY * epsilon)
+        self.current_epsilon = max(self.EPSILON_MIN, self.EPSILON_DECAY * self.current_epsilon)
 
         print(f"\rEpisode {ep_idx + 1} | Total point average of the last {num_points} " +
-              f"episodes: {av_latest_points:.2f}", end="")
+              f"episodes: {avg_latest_points:.2f}", end="")
 
         if (ep_idx + 1) % num_points == 0:
             print(f"\rEpisode {ep_idx + 1} | Total point average of the last {num_points} " +
-                  f"episodes: {av_latest_points:.2f}")
+                  f"episodes: {avg_latest_points:.2f}")
         # end if-block
 
         # We will consider that the environment is solved if we get an average of 200 points
         # in the last 100 episodes.
-        if av_latest_points >= 200.0:
+        if avg_latest_points >= self.TARGET_SCORE:
             print(f"\n\nEnvironment solved in {ep_idx + 1} episodes!")
-            self.q_network.save('./output/lunar_lander_model.keras')
-            return None
+            self.q_network.save("./output/lunar_lander_model.keras")
+            self.__save_replay_buffer()
+            return True
+        else:
+            return False
         # end if-block
-
-        return new_epsilon
     # ----- end function definition execute_episode() ---------------------------------------------
 
 
@@ -288,21 +311,22 @@ class Lander:
         """
 
         start = time.time()
-        total_point_history = []
+        self.total_point_history = []
+        self.current_epsilon = epsilon
 
         # Initialize our replay buffer with the desired memory size
-        replay_buffer = deque(maxlen=self.MEMORY_SIZE)
+        self.replay_buffer = deque(maxlen=self.MEMORY_SIZE)
 
         # Set the generator network weights equal to the Q-Network weights to begin
         self.gen_network.set_weights(self.q_network.get_weights())
 
         # Execute the number of requested episodes
         for i in range(num_episodes):
-            epsilon = self.execute_episode(i, replay_buffer, total_point_history, num_time_steps,
-                                           num_points, epsilon)
-            if epsilon is None:
-                # If epsilon is None, it means we solved the problem early!
+            if self.execute_episode(i, num_time_steps, num_points):
+                # If episode execution returns "True", it means we solved the
+                # problem early and don't need to do any more processing!
                 break
+            # end if-block
         # end episode for-loop
 
         total_time = time.time() - start
@@ -310,8 +334,8 @@ class Lander:
     # ----- end function definition train_agent() -------------------------------------------------
 
 
-    def __init__(self, buffer_size=100_000, steps_per_update=4, minibatch_size=64, alpha=1e-3,
-                 gamma=0.995, tau=1e-3, epsilon_min=0.01, epsilon_decay=0.995):
+    def __init__(self, buffer_size=100_000, steps_per_update=4, minibatch_size=64, target_score=200.0,
+                 alpha=1e-3, gamma=0.995, tau=1e-3, epsilon_min=0.01, epsilon_decay=0.995):
         """
         Updates the weights of the generator and Q-function networks; denoted as a "tf.function"
         to allow TensorFlow to convert the logic to graph-format for improved performance
@@ -320,6 +344,7 @@ class Lander:
             buffer_size: (int) size of the replay buffer
             steps_per_update: (int) number of time steps before we do an update
             minibatch_size: (int) etc.
+            target_score: (float) etc.
             alpha: (float) learning rate to use during training
             gamma: (float) discount / decay factor when calculating Q function
             tau: (float) soft update weighting parameter indicating how much we should favor
@@ -332,6 +357,7 @@ class Lander:
         self.MEMORY_SIZE = buffer_size
         self.NUM_STEPS_FOR_UPDATE = steps_per_update
         self.MINIBATCH_SIZE = minibatch_size
+        self.TARGET_SCORE = target_score
 
         self.ALPHA = alpha
         self.GAMMA = gamma
@@ -352,6 +378,12 @@ class Lander:
 
         # using "Adam" as our training optimizer for speed and performance
         self.optimizer = Adam(learning_rate=self.ALPHA)
+
+        # some training properties that are useful to keep track of
+        self.replay_buffer = None
+        self.current_state = None
+        self.current_epsilon = None
+        self.total_point_history = None
     # ----- end function definition __init__() ----------------------------------------------------
 
 
@@ -362,6 +394,7 @@ class Lander:
             "\t Replay Buffer Size: \t\t\t\t" + str(self.MEMORY_SIZE),
             "\t Steps Per Update: \t\t\t\t\t" + str(self.NUM_STEPS_FOR_UPDATE),
             "\t Mini-batch Size: \t\t\t\t\t" + str(self.MINIBATCH_SIZE),
+            "\t Target Score to Finish: \t\t\t" + str(self.TARGET_SCORE),
             "",
             "\t Learning Rate (Alpha): \t\t\t" + str(self.ALPHA),
             "\t Q-func Discount Factor (Gamma): \t" + str(self.GAMMA),
