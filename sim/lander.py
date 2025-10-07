@@ -35,7 +35,7 @@ class Lander:
             Input(shape=self.state_size, name="input"),
             Dense(units=64, activation="relu", name="hidden1"),
             Dense(units=64, activation="relu", name="hidden2"),
-            Dense(units=self.num_actions*2, activation="linear", name="monitor"),
+            Dense(units=self.num_actions*2, activation="linear", name="sadl"),
             Dense(units=self.num_actions, activation="linear", name="output")
         ])
     # ----- end function definition __get_default_network() ---------------------------------------
@@ -288,7 +288,7 @@ class Lander:
         # in the last 100 episodes.
         if avg_latest_points >= self.TARGET_SCORE:
             print(f"\n\nEnvironment solved in {ep_idx + 1} episodes!")
-            self.q_network.save("./output/lunar_lander_model.keras")
+            self.q_network.save("./output/lunar_lander.keras")
             self.__save_replay_buffer()
             return True
         else:
