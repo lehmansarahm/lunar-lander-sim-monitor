@@ -7,7 +7,13 @@ import tensorflow as tf
 class Monitor:
 
 
-    def extract_traces_and_preds(self, trace_label="traces", pred_label="preds", input_data=None):
+    def extract_traces_and_preds(self, input_data=None):
+        """
+
+        :param input_data:
+        :return:
+        """
+
         input_data = self.training_data if input_data is None else input_data
         monitor_traces, agent_predictions = [], []
 
@@ -18,15 +24,20 @@ class Monitor:
 
         monitor_traces, agent_predictions = \
             np.array(monitor_traces)[0], np.array(agent_predictions)[0]
-        np.save("./output/latest_{}.npy".format(trace_label), monitor_traces, allow_pickle=True)
-        np.save("./output/latest_{}.npy".format(pred_label), agent_predictions, allow_pickle=True)
+        np.save(self.TRACE_PATH, monitor_traces, allow_pickle=True)
+        np.save(self.PRED_PATH, agent_predictions, allow_pickle=True)
 
-        print("Saved traces with shape:", monitor_traces.shape)
+        print("\nSaved traces with shape:", monitor_traces.shape)
         print("Saved predictions with shape:", agent_predictions.shape)
     # ----- end function definition extract_traces() ----------------------------------------------
 
 
     def generate_sample_video(self):
+        """
+
+        :return:
+        """
+
         with imageio.get_writer(self.VIDEO_PATH, fps=self.VIDEO_FPS) as video:
             done = False
             state = self.monitor_env.reset()[0]
@@ -48,11 +59,25 @@ class Monitor:
     def __init__(self,
                  model_path="./output/lunar_lander.keras",
                  data_path="./output/latest_buffer_states.npy",
-                 video_path="./output/lunar_lander.mp4", video_fps=30):
+                 video_path="./output/lunar_lander.mp4", video_fps=30,
+                 trace_path="./output/latest_traces.npy",
+                 pred_path="./output/latest_preds.npy"):
+        """
+
+        :param model_path:
+        :param data_path:
+        :param video_path:
+        :param video_fps:
+        :param trace_path:
+        :param pred_path:
+        """
+
         self.MODEL_PATH = model_path
         self.TRAINING_DATA_PATH = data_path
         self.VIDEO_PATH = video_path
         self.VIDEO_FPS = video_fps
+        self.TRACE_PATH = trace_path
+        self.PRED_PATH = pred_path
 
         self.monitor_env = gym.make('LunarLander-v3', render_mode='rgb_array')
         self.q_func_model = tf.keras.models.load_model(self.MODEL_PATH)
@@ -70,8 +95,14 @@ class Monitor:
         output = [
             "LUNAR LANDER MONITOR PROPERTIES:",
             "",
-            "\t Q-func Model Path: \t" + self.MODEL_PATH,
-            "\t Training Data Path: \t" + self.TRAINING_DATA_PATH
+            "\t Q-func Model Path: \t\t" + self.MODEL_PATH,
+            "\t Training Data Path: \t\t" + self.TRAINING_DATA_PATH,
+            "",
+            "\t Output Video Path: \t\t" + self.VIDEO_PATH,
+            "\t Output Video FPS: \t\t\t" + str(self.VIDEO_FPS),
+            "",
+            "\t Monitor Trace Path: \t\t" + self.TRACE_PATH,
+            "\t Model Prediction Path: \t" + self.PRED_PATH
         ]
         return "\n".join(output)
     # ----- end function definition __str__() ----------------------------------------------------
