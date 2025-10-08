@@ -14,22 +14,30 @@ class Monitor:
         :return:
         """
 
-        input_data = self.training_data if input_data is None else input_data
-        monitor_traces, agent_predictions = [], []
+        input_data = self.training_data[0] if input_data is None else input_data
 
-        for sample in input_data:
-            monitor_traces.append(self.monitor_model.predict(sample))
-            agent_predictions.append(self.q_func_model.predict(sample))
-        # end input data iteration loop
+        monitor_traces = self.monitor_model.predict(input_data)
+        print(monitor_traces.shape)
 
-        monitor_traces, agent_predictions = \
-            np.array(monitor_traces)[0], np.array(agent_predictions)[0]
-        np.save(self.TRACE_PATH, monitor_traces, allow_pickle=True)
-        np.save(self.PRED_PATH, agent_predictions, allow_pickle=True)
+        agent_q_values = self.q_func_model.predict(input_data)
+        np.save(self.PRED_PATH, agent_q_values, allow_pickle=True)
+        print("\nAgent model Q-values saved to file:", self.PRED_PATH, "with shape:",
+              agent_q_values.shape)
 
-        print("\nSaved traces with shape:", monitor_traces.shape)
-        print("Saved predictions with shape:", agent_predictions.shape)
-    # ----- end function definition extract_traces() ----------------------------------------------
+        agent_pred_actions = np.argmax(agent_q_values, axis=1)
+        monitor_action_traces = [ [] for _ in range(self.num_actions) ]
+        for i in range(len(agent_pred_actions)):
+            pred_action = agent_pred_actions[i]
+            monitor_action_traces[pred_action].append(monitor_traces[i])
+        # end record iteration loop
+
+        for i in range(self.num_actions):
+            action_traces = np.array(monitor_action_traces[i])
+            np.save(self.TRACE_PATH.format(i), action_traces, allow_pickle=True)
+            print("Monitor traces for predicted action:", i, "saved to file:",
+                  self.TRACE_PATH.format(i), "with shape:", action_traces.shape)
+        # end action iteration loop
+    # ----- end function definition extract_traces_and_preds() ------------------------------------
 
 
     def generate_sample_video(self):
@@ -60,7 +68,7 @@ class Monitor:
                  model_path="./output/lunar_lander.keras",
                  data_path="./output/latest_buffer_states.npy",
                  video_path="./output/lunar_lander.mp4", video_fps=30,
-                 trace_path="./output/latest_traces.npy",
+                 trace_path="./output/latest_traces_{}.npy",
                  pred_path="./output/latest_preds.npy"):
         """
 
@@ -81,6 +89,7 @@ class Monitor:
 
         self.monitor_env = gym.make('LunarLander-v3', render_mode='rgb_array')
         self.q_func_model = tf.keras.models.load_model(self.MODEL_PATH)
+        self.num_actions = self.q_func_model.get_layer("output").output.shape[1]
 
         monitor_layer = self.q_func_model.get_layer("monitor")
         self.monitor_model = tf.keras.models.Model(inputs=self.q_func_model.inputs,
@@ -96,8 +105,9 @@ class Monitor:
             "LUNAR LANDER MONITOR PROPERTIES:",
             "",
             "\t Q-func Model Path: \t\t" + self.MODEL_PATH,
-            "\t Training Data Path: \t\t" + self.TRAINING_DATA_PATH,
+            "\t Q-Model Num Actions: \t\t" + str(self.num_actions),
             "",
+            "\t Training Data Path: \t\t" + self.TRAINING_DATA_PATH,
             "\t Output Video Path: \t\t" + self.VIDEO_PATH,
             "\t Output Video FPS: \t\t\t" + str(self.VIDEO_FPS),
             "",
