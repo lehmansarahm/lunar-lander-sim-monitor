@@ -41,8 +41,21 @@ class Monitor:
 
 
     def calculate_surprise_scores(self, metric_types):
+        if self.monitor_trace_map is None:
+            self.monitor_trace_map = [[] for _ in range(self.num_actions)]
+            for action_num in range(self.num_actions):
+                self.monitor_trace_map[action_num] = \
+                    np.load(self.TRACE_PATH.format(action_num), allow_pickle=True)
+            # end for-loop
+        # end if-block
+
+        if self.agent_q_values is None:
+            self.agent_q_values = np.load(self.PRED_PATH, allow_pickle=True)
+        # end if-block
+
         for metric_type in metric_types:
             metric_obj = metric_type(self.monitor_trace_map)
+            # TODO - actually calculate the scores
             print(type(metric_obj))
         # end for-loop
     # ----- end function definition calculate_surprise_scores() -----------------------------------
