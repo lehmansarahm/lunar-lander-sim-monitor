@@ -3,6 +3,8 @@ import imageio
 import numpy as np
 import tensorflow as tf
 
+from monitor.sadl import SADL
+
 
 class Monitor:
 
@@ -16,28 +18,34 @@ class Monitor:
 
         input_data = self.training_data[0] if input_data is None else input_data
 
-        monitor_traces = self.monitor_model.predict(input_data)
-        print(monitor_traces.shape)
-
-        agent_q_values = self.q_func_model.predict(input_data)
-        np.save(self.PRED_PATH, agent_q_values, allow_pickle=True)
+        self.agent_q_values = self.q_func_model.predict(input_data)
+        agent_pred_actions = np.argmax(self.agent_q_values, axis=1)
+        np.save(self.PRED_PATH, self.agent_q_values, allow_pickle=True)
         print("\nAgent model Q-values saved to file:", self.PRED_PATH, "with shape:",
-              agent_q_values.shape)
+              self.agent_q_values.shape)
 
-        agent_pred_actions = np.argmax(agent_q_values, axis=1)
-        monitor_action_traces = [ [] for _ in range(self.num_actions) ]
+        monitor_traces = self.monitor_model.predict(input_data)
+        self.monitor_trace_map = [ [] for _ in range(self.num_actions) ]
         for i in range(len(agent_pred_actions)):
             pred_action = agent_pred_actions[i]
-            monitor_action_traces[pred_action].append(monitor_traces[i])
+            self.monitor_trace_map[pred_action].append(monitor_traces[i])
         # end record iteration loop
 
         for i in range(self.num_actions):
-            action_traces = np.array(monitor_action_traces[i])
+            action_traces = np.array(self.monitor_trace_map[i])
             np.save(self.TRACE_PATH.format(i), action_traces, allow_pickle=True)
             print("Monitor traces for predicted action:", i, "saved to file:",
                   self.TRACE_PATH.format(i), "with shape:", action_traces.shape)
         # end action iteration loop
     # ----- end function definition extract_traces_and_preds() ------------------------------------
+
+
+    def calculate_surprise_scores(self, metric_types):
+        for metric_type in metric_types:
+            metric_obj = metric_type(self.monitor_trace_map)
+            print(type(metric_obj))
+        # end for-loop
+    # ----- end function definition calculate_surprise_scores() -----------------------------------
 
 
     def generate_sample_video(self):
@@ -87,16 +95,19 @@ class Monitor:
         self.TRACE_PATH = trace_path
         self.PRED_PATH = pred_path
 
-        self.monitor_env = gym.make('LunarLander-v3', render_mode='rgb_array')
         self.q_func_model = tf.keras.models.load_model(self.MODEL_PATH)
         self.num_actions = self.q_func_model.get_layer("output").output.shape[1]
 
         monitor_layer = self.q_func_model.get_layer("monitor")
+        self.monitor_env = gym.make('LunarLander-v3', render_mode='rgb_array')
         self.monitor_model = tf.keras.models.Model(inputs=self.q_func_model.inputs,
                                                    outputs=monitor_layer.output)
 
         self.training_data = np.load(self.TRAINING_DATA_PATH, allow_pickle=True)
         self.training_data = np.expand_dims(self.training_data, axis=0)
+
+        self.monitor_trace_map = None
+        self.agent_q_values = None
     # ----- end function definition __init__() ----------------------------------------------------
 
 
