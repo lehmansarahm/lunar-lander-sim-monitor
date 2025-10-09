@@ -19,7 +19,8 @@ tf.random.set_seed(SEED)
 
 # Store experiences as named tuples
 experience = namedtuple("Experience",
-                        field_names=["state", "action", "reward", "next_state", "done"])
+                        field_names=["state", "action", "reward",
+                                     "next_state", "gt_action", "done"])
 
 
 class Lander:
@@ -35,7 +36,7 @@ class Lander:
             Input(shape=self.state_size, name="input"),
             Dense(units=64, activation="relu", name="hidden1"),
             Dense(units=64, activation="relu", name="hidden2"),
-            Dense(units=self.num_actions*2, activation="linear", name="sadl"),
+            Dense(units=self.num_actions*2, activation="linear", name="monitor"),
             Dense(units=self.num_actions, activation="linear", name="output")
         ])
     # ----- end function definition __get_default_network() ---------------------------------------
@@ -61,10 +62,13 @@ class Lander:
         next_states = np.array([e.next_state for e in experiences if e is not None])
         next_states = tf.convert_to_tensor(next_states, dtype=tf.float32)
 
+        gt_actions = np.array([e.gt_action for e in experiences if e is not None])
+        gt_actions = tf.convert_to_tensor(gt_actions, dtype=tf.float32)
+
         done_flags = np.array([e.done for e in experiences if e is not None])
         done_flags = tf.convert_to_tensor(done_flags.astype(np.uint8), dtype=tf.float32)
 
-        return states, actions, rewards, next_states, done_flags
+        return states, actions, rewards, next_states, gt_actions, done_flags
     # ----- end function definition __parse_experiences() -----------------------------------------
 
 
@@ -97,12 +101,15 @@ class Lander:
 
 
     def __save_replay_buffer(self):
-        states, actions, rewards, next_states, done_flags = self.__parse_experiences(self.replay_buffer)
+        states, actions, rewards, next_states, gt_actions, done_flags = \
+            self.__parse_experiences(self.replay_buffer)
+
         buffer_components = {
             "states": states,
             "actions": actions,
             "rewards": rewards,
             "next_states": next_states,
+            "gt_actions": gt_actions,
             "done_flags": done_flags
         }
 
@@ -132,7 +139,7 @@ class Lander:
         """
 
         # Unpack the mini-batch of experience tuples
-        states, actions, imm_rewards, next_states, done_flags = experiences
+        states, actions, imm_rewards, next_states, _, done_flags = experiences
 
         # For each next state, calculate what the expected rewards would be for each possible
         # action, then pick the largest of those values to keep using "reduce_max"
@@ -205,6 +212,10 @@ class Lander:
         action = random.choice(np.arange(4)) if random.random() <= self.current_epsilon \
             else np.argmax(q_values.numpy()[0])
 
+        # Use the generator model to get a "ground truth" action that the q_network is
+        # "supposed" to match
+        gt_action = np.argmax(self.gen_network(state_qn))
+
         # -----------------------------------------------------------------------
         # Take the action in the lander environment to receive the next state,
         # reward for this action, and a flag indicating whether we're done
@@ -222,7 +233,8 @@ class Lander:
 
         # Store experience tuple (S, A, R, S-prime) in the memory buffer.
         # We store the "done" variable as well for convenience.
-        self.replay_buffer.append(experience(self.current_state, action, reward, next_state, done))
+        self.replay_buffer.append(experience(self.current_state, action, reward,
+                                             next_state, gt_action, done))
 
         # Only update the network when the necessary conditions are met.
         update_step_reached = (time_idx + 1) % self.NUM_STEPS_FOR_UPDATE == 0
@@ -289,6 +301,7 @@ class Lander:
         if avg_latest_points >= self.TARGET_SCORE:
             print(f"\n\nEnvironment solved in {ep_idx + 1} episodes!")
             self.q_network.save("./output/lunar_lander.keras")
+            self.gen_network.save("./output/generator.keras")
             self.__save_replay_buffer()
             return True
         else:
