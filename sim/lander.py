@@ -1,4 +1,4 @@
-from collections import deque, namedtuple
+from collections import deque
 import gymnasium as gym
 import numpy as np
 import random
@@ -16,11 +16,6 @@ SEED = 0
 
 # Set the random seed for TensorFlow
 tf.random.set_seed(SEED)
-
-# Store experiences as named tuples
-experience = namedtuple("Experience",
-                        field_names=["state", "action", "reward",
-                                     "next_state", "gt_action", "done"])
 
 
 class Lander:
@@ -50,7 +45,7 @@ class Lander:
         :return:
         """
 
-        states = np.array([e.state for e in experiences if e is not None])
+        states = np.array([e.State for e in experiences if e is not None])
         states = tf.convert_to_tensor(states, dtype=tf.float32)
 
         actions = np.array([e.action for e in experiences if e is not None])

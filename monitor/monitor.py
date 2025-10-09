@@ -1,16 +1,8 @@
-from enum import Enum
 import gymnasium as gym
 import imageio
 import numpy as np
+from sim.utils import DataGenerationType, DataGenerator
 import tensorflow as tf
-
-
-class DataGenerationType(Enum):
-
-    RANDOM = "randomly_generated"
-    RANDOM_BOUNDED = "randomly_generated_with_bounds"
-
-# ===== end enum DataGenerationType() =============================================================
 
 
 class Monitor:
@@ -43,7 +35,7 @@ class Monitor:
         for i in range(self.num_actions):
             action_traces = np.array(self.monitor_trace_map[i])
             np.save(self.OUTPUT_TRACE_PATH.format(i), action_traces, allow_pickle=True)
-            print("Monitor traces for predicted action:", i, "saved to file:",
+            print("Monitor traces for ground truth action:", i, "saved to file:",
                   self.OUTPUT_TRACE_PATH.format(i), "with shape:", action_traces.shape)
         # end action iteration loop
     # ----- end function definition extract_traces_and_preds() ------------------------------------
@@ -101,14 +93,11 @@ class Monitor:
 
 
     @staticmethod
-    def generate_new_inputs(gen_types):
+    def generate_new_inputs(gen_types, gen_count=10_000):
         for gen_type in gen_types:
-            match gen_type.value:
-                case DataGenerationType.RANDOM.value:
-                    print("RANDOM:", gen_type)
-                case _:
-                    print("EVERYONE ELSE:", gen_type)
-            # end match-block
+            output_filepath = "./input/{}.npy".format(gen_type.value)
+            new_data = DataGenerator.generate_new(gen_type, gen_count)
+            np.save(output_filepath, new_data, allow_pickle=True)
         # end for-loop
     # ----- end function definition generate_new_inputs() -----------------------------------------
 
@@ -165,12 +154,12 @@ class Monitor:
         output = [
             "LUNAR LANDER MONITOR PROPERTIES:",
             "",
-            "\t Agent Model Path: \t\t" + self.AGENT_MODEL_PATH,
+            "\t Agent Model Path: \t\t\t" + self.AGENT_MODEL_PATH,
             "\t Agent Num Actions: \t\t" + str(self.num_actions),
             "",
             "\t Training Data Path: \t\t" + self.TRAINING_DATA_PATH,
             "\t Training Label Path: \t\t" + self.TRAINING_LABEL_PATH,
-            "\t Test Data Path: \t\t" + self.TEST_DATA_PATH,
+            "\t Test Data Path: \t\t\t" + self.TEST_DATA_PATH,
             "",
             "\t Output Trace Path: \t\t" + self.OUTPUT_TRACE_PATH,
             "\t OUtput Prediction Path: \t" + self.OUTPUT_PRED_PATH,
