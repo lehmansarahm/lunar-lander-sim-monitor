@@ -40,6 +40,21 @@ Experience = namedtuple("Experience",
                                      "next_state", "gt_action", "done"])
 
 
+class LanderAction(Enum):
+    """
+        ------------------------------------------------------------------
+        Enum of possible actions that the lunar lander can take
+        ------------------------------------------------------------------
+    """
+
+    DO_NOTHING = 0
+    FIRE_LEFT = 1
+    FIRE_MAIN = 2
+    FIRE_RIGHT = 3
+
+# ===== end enum LanderAction() ===================================================================
+
+
 class DataGenerationType(Enum):
     """
         ------------------------------------------------------------------

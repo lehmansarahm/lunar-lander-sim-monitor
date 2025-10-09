@@ -60,12 +60,11 @@ class LSA(SADL):
     # ---- end def __get_lsa() --------------------------------------------------------------------
 
 
-    def calculate(self, pred_action, test_traces, output_filepath):
+    def calculate(self, test_traces, pred_action):
         """
 
-        :param pred_action:
         :param test_traces:
-        :param output_filepath:
+        :param pred_action:
 
         :return:
         """
@@ -78,9 +77,14 @@ class LSA(SADL):
             lsa_scores.append(self.__get_lsa(kde, act, removed_cols))
         # end for-loop
 
-        np.save(output_filepath, lsa_scores)
         return lsa_scores
     # ---- end def calculate_lsa() ----------------------------------------------------------------
+
+
+    @classmethod
+    def get_name(cls):
+        return "lsa"
+    # ---- end def get_name() ---------------------------------------------------------------------
 
 
     def __init__(self, trace_map):

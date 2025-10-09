@@ -14,15 +14,13 @@ class MDSA(SADL):
     """
 
 
-    def calculate(self, pred_action, test_traces, output_filepath):
+    def calculate(self, test_traces, pred_action):
         """
         Iterate through new predictions, calculate their distance from the training data
         using the authors' MDSA definition:  𝑀𝐷𝑆𝐴(𝑥) = √︃(𝛼 (𝑥)−𝜇 )𝑇𝑆−1(𝛼 (𝑥)−𝜇 )
 
-
-        :param pred_action:
         :param test_traces:
-        :param output_filepath:
+        :param pred_action:
 
         :return:
         """
@@ -37,9 +35,14 @@ class MDSA(SADL):
             mdsa_scores.append(mdsa)
         # end for-loop
 
-        np.save(output_filepath, mdsa_scores)
         return mdsa_scores
     # ---- end def calculate() --------------------------------------------------------------------
+
+
+    @classmethod
+    def get_name(cls):
+        return "mdsa"
+    # ---- end def get_name() ---------------------------------------------------------------------
 
 
     def __init__(self, trace_map):

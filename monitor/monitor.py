@@ -1,8 +1,11 @@
 import gymnasium as gym
 import imageio
 import numpy as np
-from sim.utils import DataGenerationType, DataGenerator
 import tensorflow as tf
+from typing import Type
+
+from monitor.sadl import SADL
+from sim.utils import DataGenerator, LanderAction
 
 
 class Monitor:
@@ -41,10 +44,12 @@ class Monitor:
     # ----- end function definition extract_traces_and_preds() ------------------------------------
 
 
-    def calculate_surprise_scores(self, metric_types):
+    def calculate_surprise_scores(self, metric_types: list[Type[SADL]], pred_action: LanderAction):
         """
 
         :param metric_types:
+        :param pred_action:
+
         :return:
         """
 
@@ -61,9 +66,12 @@ class Monitor:
         # end if-block
 
         for metric_type in metric_types:
+            output_path = "./output/{}_{}.npy".format(metric_type.get_name(),
+                                                      str(pred_action.name).lower())
             metric_obj = metric_type(self.monitor_trace_map)
-            # TODO - actually calculate the scores
-            print(type(metric_obj))
+            metric_scores = metric_obj.calculate(self.test_data, pred_action.value)
+            np.save(output_path, metric_scores, allow_pickle=True)
+            print("New generated data saved to file:", output_path)
         # end for-loop
     # ----- end function definition calculate_surprise_scores() -----------------------------------
 
@@ -144,8 +152,10 @@ class Monitor:
 
         self.training_data = np.load(self.TRAINING_DATA_PATH, allow_pickle=True)
         self.training_data = np.expand_dims(self.training_data, axis=0)
-
         self.training_labels = np.load(self.TRAINING_LABEL_PATH, allow_pickle=True)
+
+        self.test_data = np.load(self.TEST_DATA_PATH, allow_pickle=True)
+        self.test_data = np.expand_dims(self.test_data, axis=0)
 
         self.monitor_trace_map = None
         self.agent_q_values = None
