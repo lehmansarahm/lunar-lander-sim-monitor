@@ -36,7 +36,7 @@ class Monitor:
         monitor_traces = self.monitor_model.predict(input_data)
         self.monitor_trace_map = [ [] for _ in range(self.num_actions) ]
         for i in range(len(input_labels)):
-            gt_action = input_labels[i]
+            gt_action = int(input_labels[i])
             self.monitor_trace_map[gt_action].append(monitor_traces[i])
         # end record iteration loop
 
