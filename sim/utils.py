@@ -1,6 +1,7 @@
 from collections import namedtuple
 from enum import Enum
 import numpy as np
+import sys
 
 
 """
@@ -99,15 +100,36 @@ class DataGenerator:
     # ----- end function definition __init__() ----------------------------------------------------
 
 
-    @classmethod
-    def generate_new(cls, data_gen_type, gen_count):
+    def generate_new(self, data_gen_type, gen_count):
         match data_gen_type.value:
             case DataGenerationType.RANDOM.value:
                 rand_floats = np.random.rand(gen_count, 6)
                 rand_bools = np.random.choice([True, False], size=(gen_count, 2))
                 new_states = np.concatenate((rand_floats, rand_bools), axis=1)
-            # case DataGenerationType.RANDOM_BOUNDED.value:
-            #     print("RANDOM BOUNDED:")
+
+            case DataGenerationType.RANDOM_BOUNDED.value:
+                rand_x = np.random.uniform(self.STATE_BOUNDS.x[0],
+                                           self.STATE_BOUNDS.x[1] + sys.float_info.min,
+                                           size=gen_count)
+                rand_y = np.random.uniform(self.STATE_BOUNDS.y[0],
+                                           self.STATE_BOUNDS.y[1] + sys.float_info.min,
+                                           size=gen_count)
+                rand_x_dot = np.random.uniform(self.STATE_BOUNDS.x_dot[0],
+                                               self.STATE_BOUNDS.x_dot[1] + sys.float_info.min,
+                                               size=gen_count)
+                rand_y_dot = np.random.uniform(self.STATE_BOUNDS.y_dot[0],
+                                               self.STATE_BOUNDS.y_dot[1] + sys.float_info.min,
+                                               size=gen_count)
+                rand_theta = np.random.uniform(self.STATE_BOUNDS.theta[0],
+                                               self.STATE_BOUNDS.theta[1] + sys.float_info.min,
+                                               size=gen_count)
+                rand_theta_dot = np.random.uniform(self.STATE_BOUNDS.theta_dot[0],
+                                               self.STATE_BOUNDS.theta_dot[1] + sys.float_info.min,
+                                               size=gen_count)
+                rand_bools = np.random.choice([True, False], size=(gen_count, 2))
+                new_states = np.column_stack((rand_x, rand_y, rand_x_dot, rand_y_dot,
+                                              rand_theta, rand_theta_dot, rand_bools))
+
             case _:
                 raise Exception("Data generation type:", data_gen_type, "is currently unsupported")
         # end match-block

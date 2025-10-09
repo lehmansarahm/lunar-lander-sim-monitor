@@ -94,10 +94,12 @@ class Monitor:
 
     @staticmethod
     def generate_new_inputs(gen_types, gen_count=10_000):
+        generator = DataGenerator()
         for gen_type in gen_types:
             output_filepath = "./input/{}.npy".format(gen_type.value)
-            new_data = DataGenerator.generate_new(gen_type, gen_count)
+            new_data = generator.generate_new(gen_type, gen_count)
             np.save(output_filepath, new_data, allow_pickle=True)
+            print("New generated data saved to file:", output_filepath)
         # end for-loop
     # ----- end function definition generate_new_inputs() -----------------------------------------
 
